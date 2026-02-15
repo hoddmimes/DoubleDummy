@@ -67,9 +67,5 @@ public class Trick {
     public void reset() {
         count = 0;
         ledSuit = null;
-        for (int i = 0; i < 4; i++) {
-            cards[i] = null;
-            players[i] = null;
-        }
     }
 }

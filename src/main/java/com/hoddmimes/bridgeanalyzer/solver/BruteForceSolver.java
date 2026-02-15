@@ -6,34 +6,45 @@ import com.hoddmimes.bridgeanalyzer.model.Card;
 import com.hoddmimes.bridgeanalyzer.model.Direction;
 import com.hoddmimes.bridgeanalyzer.model.Trump;
 
-import java.util.List;
-
 public class BruteForceSolver implements Solver {
+
+    // Pre-allocated move buffers per recursion depth
+    private final Card[][] moveBuffers = new Card[52][13];
 
     @Override
     public int solve(Deal deal, Trump trump, Direction declarer) {
         GameState state = new GameState(deal, trump, declarer);
-        return minimax(state);
+        return minimax(state, 0);
     }
 
-    private int minimax(GameState state) {
+    private int minimax(GameState state, int depth) {
         if (state.isTerminal()) {
             return state.nsTricks();
         }
 
-        List<Card> moves = state.legalMoves();
+        // Early termination bounds
+        int tricksPlayed = state.nsTricks() + state.ewTricks();
+        int tricksRemaining = state.totalTricks() - tricksPlayed;
+        int nsMax = state.nsTricks() + tricksRemaining;
+        int nsMin = state.nsTricks();
+
+        Card[] moves = moveBuffers[depth];
+        int moveCount = state.fillLegalMovesReduced(moves);
         boolean nsToPlay = state.nextPlayer().isNS();
         int best = nsToPlay ? -1 : Integer.MAX_VALUE;
 
-        for (Card card : moves) {
-            GameState.UndoInfo undo = state.playCard(card);
-            int result = minimax(state);
-            state.undoCard(card, undo);
+        for (int i = 0; i < moveCount; i++) {
+            Card card = moves[i];
+            int undo = state.playCardFast(card);
+            int result = minimax(state, depth + 1);
+            state.undoCardFast(card, undo);
 
             if (nsToPlay) {
                 best = Math.max(best, result);
+                if (best == nsMax) break;
             } else {
                 best = Math.min(best, result);
+                if (best == nsMin) break;
             }
         }
         return best;

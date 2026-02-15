@@ -4,33 +4,23 @@ import com.hoddmimes.bridgeanalyzer.game.Deal;
 import com.hoddmimes.bridgeanalyzer.game.GameState;
 import com.hoddmimes.bridgeanalyzer.model.Card;
 import com.hoddmimes.bridgeanalyzer.model.Direction;
+import com.hoddmimes.bridgeanalyzer.model.Suit;
 import com.hoddmimes.bridgeanalyzer.model.Trump;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 public class AlphaBetaSolver implements Solver {
+
+    // Pre-allocated move buffers per recursion depth (max 52 cards = 13 tricks * 4)
+    private final Card[][] moveBuffers = new Card[52][13];
+    private final TranspositionTable tt = new TranspositionTable();
 
     @Override
     public int solve(Deal deal, Trump trump, Direction declarer) {
         GameState state = new GameState(deal, trump, declarer);
-        Map<Long, int[]> transTable = new HashMap<>();
-        return alphaBeta(state, 0, state.totalTricks(), transTable);
+        tt.clear();
+        return alphaBeta(state, 0, state.totalTricks(), 0);
     }
 
-    /**
-     * Build a hash key from the 4 hands + who is next to play + trick position.
-     * We encode: hands (52 bits each but combined), nextPlayer (2 bits), trick count in progress (2 bits).
-     * Since hands are unique game states together with whose turn it is, we use a compact key.
-     */
     private long stateKey(GameState state) {
-        // Combine the 4 hand bitmasks. Since each card is in exactly one hand,
-        // we need to know which hand has which card. Use a compact encoding:
-        // For each of the 52 card positions, 2 bits tell us which player holds it.
-        // But that's 104 bits. Instead, use a simpler approach:
-        // hash = hand[N] XOR (hand[E] * prime) XOR (hand[S] * prime2) XOR ...
-        // Plus next player and trick position.
         long h = state.handBits(Direction.NORTH);
         h = h * 0x9E3779B97F4A7C15L + state.handBits(Direction.EAST);
         h = h * 0x9E3779B97F4A7C15L + state.handBits(Direction.SOUTH);
@@ -40,7 +30,40 @@ public class AlphaBetaSolver implements Solver {
         return h;
     }
 
-    private int alphaBeta(GameState state, int alpha, int beta, Map<Long, int[]> tt) {
+    private int moveScore(Card card, Suit ledSuit, Trump trump) {
+        int score = card.rank().value();
+        if (trump.isTrump(card.suit())) {
+            score += 26;
+        } else if (ledSuit != null && card.suit() == ledSuit) {
+            score += 13;
+        }
+        return score;
+    }
+
+    private void orderMoves(Card[] moves, int count, GameState state) {
+        if (count <= 1) return;
+
+        boolean nsToPlay = state.nextPlayer().isNS();
+        Trump trump = state.trump();
+        Suit ledSuit = state.currentTrick().count() > 0 ? state.currentTrick().ledSuit() : null;
+
+        // Simple insertion sort (small arrays, avoids allocation)
+        for (int i = 1; i < count; i++) {
+            Card key = moves[i];
+            int keyScore = moveScore(key, ledSuit, trump);
+            int j = i - 1;
+            while (j >= 0) {
+                int cmpScore = moveScore(moves[j], ledSuit, trump);
+                boolean shouldSwap = nsToPlay ? cmpScore < keyScore : cmpScore > keyScore;
+                if (!shouldSwap) break;
+                moves[j + 1] = moves[j];
+                j--;
+            }
+            moves[j + 1] = key;
+        }
+    }
+
+    private int alphaBeta(GameState state, int alpha, int beta, int depth) {
         if (state.isTerminal()) {
             return state.nsTricks();
         }
@@ -56,12 +79,13 @@ public class AlphaBetaSolver implements Solver {
         }
 
         // Transposition table lookup (only at trick boundaries for cleaner semantics)
-        Long key = null;
-        if (state.currentTrick().count() == 0) {
+        long key = 0;
+        boolean useTT = state.currentTrick().count() == 0;
+        if (useTT) {
             key = stateKey(state);
-            int[] cached = tt.get(key);
-            if (cached != null) {
-                int lower = cached[0], upper = cached[1];
+            int slot = tt.lookup(key);
+            if (slot >= 0) {
+                int lower = tt.lower(slot), upper = tt.upper(slot);
                 if (lower >= beta) return lower;
                 if (upper <= alpha) return upper;
                 alpha = Math.max(alpha, lower);
@@ -72,40 +96,46 @@ public class AlphaBetaSolver implements Solver {
         int origAlpha = alpha;
         int origBeta = beta;
 
-        List<Card> moves = state.legalMovesReduced();
+        Card[] moves = moveBuffers[depth];
+        int moveCount = state.fillLegalMovesReduced(moves);
+        orderMoves(moves, moveCount, state);
         boolean nsToPlay = state.nextPlayer().isNS();
 
         int value;
         if (nsToPlay) {
             value = 0;
-            for (Card card : moves) {
-                GameState.UndoInfo undo = state.playCard(card);
-                value = Math.max(value, alphaBeta(state, alpha, beta, tt));
-                state.undoCard(card, undo);
+            for (int i = 0; i < moveCount; i++) {
+                Card card = moves[i];
+                int undo = state.playCardFast(card);
+                value = Math.max(value, alphaBeta(state, alpha, beta, depth + 1));
+                state.undoCardFast(card, undo);
                 alpha = Math.max(alpha, value);
                 if (alpha >= beta) break;
             }
         } else {
             value = state.totalTricks();
-            for (Card card : moves) {
-                GameState.UndoInfo undo = state.playCard(card);
-                value = Math.min(value, alphaBeta(state, alpha, beta, tt));
-                state.undoCard(card, undo);
+            for (int i = 0; i < moveCount; i++) {
+                Card card = moves[i];
+                int undo = state.playCardFast(card);
+                value = Math.min(value, alphaBeta(state, alpha, beta, depth + 1));
+                state.undoCardFast(card, undo);
                 beta = Math.min(beta, value);
                 if (alpha >= beta) break;
             }
         }
 
         // Store in transposition table
-        if (key != null) {
-            int[] entry = tt.computeIfAbsent(key, k -> new int[]{0, 13});
+        if (useTT) {
+            int slot = tt.store(key);
             if (value <= origAlpha) {
-                entry[1] = Math.min(entry[1], value); // upper bound
+                int cur = tt.upper(slot);
+                if (value < cur) tt.setUpper(slot, value);
             } else if (value >= origBeta) {
-                entry[0] = Math.max(entry[0], value); // lower bound
+                int cur = tt.lower(slot);
+                if (value > cur) tt.setLower(slot, value);
             } else {
-                entry[0] = value;
-                entry[1] = value; // exact
+                tt.setLower(slot, value);
+                tt.setUpper(slot, value);
             }
         }
 

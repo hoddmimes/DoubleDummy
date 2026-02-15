@@ -6,6 +6,7 @@ import com.hoddmimes.bridgeanalyzer.model.Trump;
 import com.hoddmimes.bridgeanalyzer.solver.Solver;
 import com.hoddmimes.bridgeanalyzer.solver.SolverFactory;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,6 +67,8 @@ public class Main {
         }
         System.out.println();
 
+        long startTime = System.nanoTime();
+
         for (Direction declarer : declarers) {
             System.out.printf("  %s:   ", declarer.name().charAt(0));
             for (Trump trump : trumps) {
@@ -80,7 +83,11 @@ public class Main {
             }
             System.out.println();
         }
-        System.out.println();
+
+        long elapsed = System.nanoTime() - startTime;
+        Duration d = Duration.ofNanos(elapsed);
+        System.out.printf("%nSolve time: %02d:%02d:%02d.%03d%n%n",
+                d.toHours(), d.toMinutesPart(), d.toSecondsPart(), d.toMillisPart());
     }
 
     private static Map<String, String> parseArgs(String[] args) {
