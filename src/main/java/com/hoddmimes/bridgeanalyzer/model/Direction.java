@@ -6,6 +6,11 @@ public enum Direction {
     SOUTH(2),
     WEST(3);
 
+    private static final Direction[] VALS = values();
+    private static final Direction[] NEXT = {EAST, SOUTH, WEST, NORTH};
+    private static final Direction[] PARTNER = {SOUTH, WEST, NORTH, EAST};
+    private static final boolean[] NS = {true, false, true, false};
+
     private final int index;
 
     Direction(int index) {
@@ -15,15 +20,15 @@ public enum Direction {
     public int index() { return index; }
 
     public Direction next() {
-        return values()[(index + 1) % 4];
+        return NEXT[index];
     }
 
     public Direction partner() {
-        return values()[(index + 2) % 4];
+        return PARTNER[index];
     }
 
     public boolean isNS() {
-        return this == NORTH || this == SOUTH;
+        return NS[index];
     }
 
     public static Direction fromChar(char c) {
@@ -37,6 +42,6 @@ public enum Direction {
     }
 
     public static Direction fromIndex(int index) {
-        return values()[index];
+        return VALS[index];
     }
 }

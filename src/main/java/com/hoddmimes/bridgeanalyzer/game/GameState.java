@@ -286,4 +286,112 @@ public class GameState {
     public long handBits(Direction dir) {
         return hands[dir.index()];
     }
+
+    /**
+     * When exactly 1 trick remains and we're at a trick boundary,
+     * each player has exactly 1 card. Compute the result directly.
+     */
+    public int solveLastTrick() {
+        Direction leader = nextPlayer;
+        Card c0 = singleCard(hands[leader.index()]);
+        Direction p1 = leader.next();
+        Card c1 = singleCard(hands[p1.index()]);
+        Direction p2 = p1.next();
+        Card c2 = singleCard(hands[p2.index()]);
+        Direction p3 = p2.next();
+        Card c3 = singleCard(hands[p3.index()]);
+
+        Direction winner = Trick.computeWinner(c0, leader, c1, p1, c2, p2, c3, p3,
+                c0.suit(), trump);
+        return tricksWon[0] + (winner.isNS() ? 1 : 0);
+    }
+
+    private static Card singleCard(long handBits) {
+        return Card.fromBitIndex(Long.numberOfTrailingZeros(handBits));
+    }
+
+    /**
+     * Count quick tricks — guaranteed top-card winners for NS and EW.
+     * Returns [nsQuickTricks, ewQuickTricks].
+     * Only valid at trick boundaries (currentTrick.count() == 0).
+     */
+    public int countNSQuickTricks() {
+        int nsQuick = 0;
+        long nsCards = hands[Direction.NORTH.index()] | hands[Direction.SOUTH.index()];
+        long ewCards = hands[Direction.EAST.index()] | hands[Direction.WEST.index()];
+        long allCards = nsCards | ewCards;
+
+        // For each suit, count how many of the top remaining cards belong to NS
+        // Only count consecutive top winners (once EW has a higher card, stop)
+        for (Suit suit : Suit.values()) {
+            int base = suit.index() * 13;
+            long suitAll = (allCards >> base) & SUIT_MASK;
+            long suitNS = (nsCards >> base) & SUIT_MASK;
+
+            if (suitAll == 0) continue;
+
+            // For trump contracts, skip non-trump suit quick tricks if opponents have trump
+            if (trump.suit() != null && !trump.isTrump(suit)) {
+                Suit trumpSuit = trump.suit();
+                int trumpBase = trumpSuit.index() * 13;
+                long ewTrump = (ewCards >> trumpBase) & SUIT_MASK;
+                if (ewTrump != 0) {
+                    // EW can ruff, so no quick tricks in this side suit for NS
+                    continue;
+                }
+            }
+
+            // Count consecutive top cards belonging to NS
+            while (suitAll != 0) {
+                int topBit = 63 - Long.numberOfLeadingZeros(suitAll);
+                if ((suitNS & (1L << topBit)) != 0) {
+                    nsQuick++;
+                } else {
+                    break; // EW has a higher card
+                }
+                suitAll &= ~(1L << topBit);
+            }
+        }
+
+        return nsQuick;
+    }
+
+    /**
+     * Count quick tricks for EW.
+     */
+    public int countEWQuickTricks() {
+        int ewQuick = 0;
+        long nsCards = hands[Direction.NORTH.index()] | hands[Direction.SOUTH.index()];
+        long ewCards = hands[Direction.EAST.index()] | hands[Direction.WEST.index()];
+        long allCards = nsCards | ewCards;
+
+        for (Suit suit : Suit.values()) {
+            int base = suit.index() * 13;
+            long suitAll = (allCards >> base) & SUIT_MASK;
+            long suitEW = (ewCards >> base) & SUIT_MASK;
+
+            if (suitAll == 0) continue;
+
+            if (trump.suit() != null && !trump.isTrump(suit)) {
+                Suit trumpSuit = trump.suit();
+                int trumpBase = trumpSuit.index() * 13;
+                long nsTrump = (nsCards >> trumpBase) & SUIT_MASK;
+                if (nsTrump != 0) {
+                    continue;
+                }
+            }
+
+            while (suitAll != 0) {
+                int topBit = 63 - Long.numberOfLeadingZeros(suitAll);
+                if ((suitEW & (1L << topBit)) != 0) {
+                    ewQuick++;
+                } else {
+                    break;
+                }
+                suitAll &= ~(1L << topBit);
+            }
+        }
+
+        return ewQuick;
+    }
 }

@@ -25,6 +25,12 @@ public class BruteForceSolver implements Solver {
         // Early termination bounds
         int tricksPlayed = state.nsTricks() + state.ewTricks();
         int tricksRemaining = state.totalTricks() - tricksPlayed;
+
+        // Last trick optimization
+        if (state.currentTrick().count() == 0 && tricksRemaining == 1) {
+            return state.solveLastTrick();
+        }
+
         int nsMax = state.nsTricks() + tricksRemaining;
         int nsMin = state.nsTricks();
 

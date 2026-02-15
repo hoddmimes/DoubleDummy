@@ -8,15 +8,17 @@ public enum Trump {
     NO_TRUMP(null);
 
     private final Suit suit;
+    private final int trumpSuitIndex; // -1 for NT
 
     Trump(Suit suit) {
         this.suit = suit;
+        this.trumpSuitIndex = suit != null ? suit.index() : -1;
     }
 
     public Suit suit() { return suit; }
 
     public boolean isTrump(Suit s) {
-        return suit != null && suit == s;
+        return s.index() == trumpSuitIndex;
     }
 
     public static Trump fromString(String s) {

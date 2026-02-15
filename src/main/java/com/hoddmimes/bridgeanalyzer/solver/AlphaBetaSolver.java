@@ -78,9 +78,32 @@ public class AlphaBetaSolver implements Solver {
             return beta;
         }
 
+        boolean atTrickBoundary = state.currentTrick().count() == 0;
+
+        // Last trick optimization: compute directly without recursion
+        if (atTrickBoundary && tricksRemaining == 1) {
+            return state.solveLastTrick();
+        }
+
+        // Quick tricks tightening — only for the side that has the lead
+        if (atTrickBoundary && tricksRemaining >= 3) {
+            boolean nsLeads = state.nextPlayer().isNS();
+            if (nsLeads) {
+                int nsQuick = Math.min(state.countNSQuickTricks(), tricksRemaining);
+                int nsFloor = state.nsTricks() + nsQuick;
+                if (nsFloor >= beta) return nsFloor;
+                alpha = Math.max(alpha, nsFloor);
+            } else {
+                int ewQuick = Math.min(state.countEWQuickTricks(), tricksRemaining);
+                int nsCeiling = state.nsTricks() + tricksRemaining - ewQuick;
+                if (nsCeiling <= alpha) return nsCeiling;
+                beta = Math.min(beta, nsCeiling);
+            }
+        }
+
         // Transposition table lookup (only at trick boundaries for cleaner semantics)
         long key = 0;
-        boolean useTT = state.currentTrick().count() == 0;
+        boolean useTT = atTrickBoundary;
         if (useTT) {
             key = stateKey(state);
             int slot = tt.lookup(key);
